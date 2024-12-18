@@ -1,0 +1,16 @@
+{
+    "mqtt": {
+        "broker": "",
+        "port": 1883,
+        "username": "",
+        "password": "",
+        "base_topic": "homeassistant"
+    },
+    "device": {
+        "id": "",
+        "name": "",
+        "display_name": "DSI-2",
+        "led_control_pin": 18,
+        "led_pixel_count": 13
+    }
+}
