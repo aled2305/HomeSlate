@@ -2,9 +2,9 @@ import os
 import requests
 import zipfile
 import semver
-import glob
 import json
 import subprocess
+import tempfile
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
@@ -13,8 +13,13 @@ CONFIG_FILE = "../config.json"
 EXAMPLE_CONFIG_FILE = "../example_config.json"
 GITHUB_REPO = "aled2305/HomeSlate"
 ACCESS_TOKEN = ""
-UPDATE_DIR = "update"  # This can be any folder you choose
-os.makedirs(UPDATE_DIR, exist_ok=True)  # Create the directory if it doesn't exist
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # Get the directory of the current script
+VENV_DIR = os.path.join(SCRIPT_DIR, "homeslate")
+SERVICE_NAME = "home_slate.service"
+MANAGEMENT_SERVICE_NAME = "home_slate_management.service"
+# TMP_DIR = os.path.join(SCRIPT_DIR, "temp_update")
+TMP_DIR = tempfile.mkdtemp()
+os.makedirs(TMP_DIR, exist_ok=True)  # Ensure the temp directory exists
 
 def read_config():
     with open(CONFIG_FILE, "r") as f:
@@ -72,40 +77,56 @@ def is_update_available():
     except ValueError as e:
         raise ValueError(f"Invalid version format: {e}")
 
-def download_and_replace(url, download_path, extract_path):
-    # Ensure the 'update' directory exists
-    os.makedirs(os.path.dirname(download_path), exist_ok=True)
-
+def download_and_replace(url):
     print(f"Starting download from: {url}")
-    response = requests.get(url)
-    if response.status_code == 200:
-        with open(download_path, 'wb') as f:
-            f.write(response.content)
-        print(f"Downloaded update to {download_path}")
+    zip_path = os.path.join(TMP_DIR, "update.zip")
+    try:
+        # Download the update
+        response = requests.get(url, stream=True)
+        if response.status_code == 200:
+            with open(zip_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            print(f"Downloaded update to {zip_path}")
 
-        # Extract the zip file
-        with zipfile.ZipFile(download_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_path)
-        print(f"Extracted update to {extract_path}")
+            # Extract the zip file
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(TMP_DIR)
+            print(f"Extracted update to {TMP_DIR}")
 
-        # Find the extracted folder dynamically
-        extracted_folders = glob.glob(os.path.join(extract_path, "*"))
-        if not extracted_folders:
-            raise Exception("No extracted folder found.")
-        extracted_folder = extracted_folders[0]  # Assume the first folder is the extracted repo
+            # Find the extracted folder dynamically
+            extracted_folders = [f for f in os.listdir(TMP_DIR) if os.path.isdir(os.path.join(TMP_DIR, f))]
+            if not extracted_folders:
+                raise Exception("No extracted folder found.")
+            extracted_folder = os.path.join(TMP_DIR, extracted_folders[0])
+            print(f"Using extracted folder: {extracted_folder}")
 
-        print(f"Using extracted folder: {extracted_folder}")
+            # Use rsync to sync files, preserving permissions and avoiding ownership changes
+            rsync_command = (
+                f"rsync -av --delete --exclude='homeslate' --exclude='config.json' --exclude='version.txt' "
+                f"{extracted_folder}/ {os.path.dirname(SCRIPT_DIR)}/"
+            )
+            print(f"Executing rsync: {rsync_command}")
+            result = os.system(rsync_command)
+            if result != 0:
+                raise Exception("Rsync operation failed.")
 
-        # Use rsync to sync files, excluding specific folders/files
-        os.system(f"rsync -av --delete --exclude='homeslate' --exclude='config.json' {extracted_folder}/ ../")
-        print("Synced files to project directory.")
+            print("Synced files to script directory.")
 
-        # Cleanup
-        os.remove(download_path)
-        os.system(f"rm -rf {extract_path}")
+            # Update version.txt after successful sync
+            latest_version, _ = get_latest_version()
+            with open(os.path.join(SCRIPT_DIR, "../version.txt"), "w") as f:
+                f.write(f"v{latest_version}")
+
+        else:
+            raise Exception(f"Failed to download update. Status code: {response.status_code}")
+    finally:
+        # Cleanup temporary files
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+        if os.path.exists(TMP_DIR):
+            os.system(f"rm -rf {TMP_DIR}")
         print("Cleaned up temporary files.")
-    else:
-        raise Exception(f"Failed to download update. Status code: {response.status_code}")
 
 @app.route('/')
 def home():
@@ -168,23 +189,14 @@ def update():
 
         # Check if an update is available
         if is_update_available():
-            # Define where to download and extract the files
-            download_path = os.path.join(UPDATE_DIR, "update.zip")
-            extract_path = os.path.join(UPDATE_DIR, "extracted")
-
-            # Download, extract, and replace files
-            download_and_replace(zip_url, download_path, extract_path)
+            # Download and replace files
+            download_and_replace(zip_url)
 
             # Merge the example config with the current config
             merge_configs()
 
-            # Optionally, update the version file
-            with open("../version.txt", "w") as f:
-                f.write(f"v{latest_version}")
-
-            # Restart services
-            subprocess.run(["systemctl", "restart", "home_slate.service"])
-            subprocess.run(["systemctl", "restart", "home_slate_management.service"])
+            # Restart only the main service since management performs updates
+            subprocess.run(["systemctl", "restart", SERVICE_NAME])
 
             return jsonify({"status": "success", "message": f"Update to v{latest_version} installed successfully!"})
 
