@@ -1,52 +1,147 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Config Settings</title>
+    <title>Home Slate - Config Settings</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+            font-size: 1.5em;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            color: #4CAF50;
+            font-size: 1.8em;
+        }
+
+        h3 {
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input[type="text"], input[type="number"], input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1em;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #status, #updateStatus {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f1f1f1;
+            color: #333;
+        }
+
+        #updateStatus {
+            font-weight: bold;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        small {
+            color: #555;
+            font-size: 0.9em;
+        }
+    </style>
 </head>
 <body>
-    <h1>MQTT Configuration</h1>
-    <form id="configForm" method="POST" action="/update-config">
-        <h3>MQTT Settings</h3>
-        <label for="mqtt_broker">MQTT Broker:</label><br>
-        <input type="text" id="mqtt_broker" name="mqtt_broker" value="{{ config['mqtt']['broker'] }}"><br><br>
-        
-        <label for="mqtt_port">MQTT Port:</label><br>
-        <input type="number" id="mqtt_port" name="mqtt_port" value="{{ config['mqtt']['port'] }}"><br><br>
-        
-        <label for="mqtt_username">Username:</label><br>
-        <input type="text" id="mqtt_username" name="mqtt_username" value="{{ config['mqtt']['username'] }}"><br><br>
-        
-        <label for="mqtt_password">Password:</label><br>
-        <input type="password" id="mqtt_password" name="mqtt_password" value="{{ config['mqtt']['password'] }}"><br><br>
-        
-        <label for="mqtt_base_topic">Base Topic:</label><br>
-        <input type="text" id="mqtt_base_topic" name="mqtt_base_topic" value="{{ config['mqtt']['base_topic'] }}"><br><br>
+    <header>Home Slate - Configuration Settings</header>
+    <div class="container">
+        <h1>MQTT Configuration</h1>
+        <form id="configForm" method="POST" action="/update-config">
+            <h3>MQTT Settings</h3>
+            <label for="mqtt_broker">MQTT Broker:</label>
+            <input type="text" id="mqtt_broker" name="mqtt_broker" value="{{ config['mqtt']['broker'] }}">
 
-        <h3>Device Settings</h3>
-        <label for="device_id">Device ID:</label><br>
-        <input type="text" id="device_id" name="device_id" value="{{ config['device']['id'] }}"><br><br>
+            <label for="mqtt_port">MQTT Port:</label>
+            <input type="number" id="mqtt_port" name="mqtt_port" value="{{ config['mqtt']['port'] }}">
 
-        <label for="device_name">Device Name:</label><br>
-        <input type="text" id="device_name" name="device_name" value="{{ config['device']['name'] }}"><br><br>
+            <label for="mqtt_username">Username:</label>
+            <input type="text" id="mqtt_username" name="mqtt_username" value="{{ config['mqtt']['username'] }}">
 
-        <label for="device_display_name">Display Name:</label><br>
-        <input type="text" id="device_display_name" name="device_display_name" value="{{ config['device']['display_name'] }}"><br><br>
+            <label for="mqtt_password">Password:</label>
+            <input type="password" id="mqtt_password" name="mqtt_password" value="{{ config['mqtt']['password'] }}">
 
-        <label for="led_control_pin">LED Control Pin:</label><br>
-        <input type="number" id="led_control_pin" name="led_control_pin" value="{{ config['device']['led_control_pin'] }}"><br><br>
+            <label for="mqtt_base_topic">Base Topic:</label>
+            <input type="text" id="mqtt_base_topic" name="mqtt_base_topic" value="{{ config['mqtt']['base_topic'] }}">
 
-        <label for="led_pixel_count">LED Pixel Count:</label><br>
-        <input type="number" id="led_pixel_count" name="led_pixel_count" value="{{ config['device']['led_pixel_count'] }}"><br><br>
+            <h3>Device Settings</h3>
+            <label for="device_id">Device ID:</label>
+            <div style="display: flex; align-items: center; gap: 5px;">
+                <input type="text" id="device_id" name="device_id" value="{{ config['device']['id'] }}">
+                <button type="button" id="infoDeviceId" style="background: none; border: none; cursor: pointer;">ℹ️</button>
+            </div>
+            <small id="deviceIdInfo" style="display: none;">The Device ID must be unique and is used by Home Assistant to differentiate each device sending and receiving MQTT messages.</small>
 
-        <button type="submit">Save</button>
-    </form>
+            <label for="device_name">Device Name:</label>
+            <input type="text" id="device_name" name="device_name" value="{{ config['device']['name'] }}">
 
-    <div id="status"></div>
-    <div id="updateStatus"></div>
+            <label for="device_display_name">Display Name:</label>
+            <input type="text" id="device_display_name" name="device_display_name" value="{{ config['device']['display_name'] }}">
 
-    <h2>Check for Updates</h2>
-    <button id="checkUpdateBtn">Check for Update</button>
-    <button id="updateBtn">Update Now</button>
+            <label for="led_control_pin">LED Control Pin:</label>
+            <input type="number" id="led_control_pin" name="led_control_pin" value="{{ config['device']['led_control_pin'] }}">
+
+            <label for="led_pixel_count">LED Pixel Count:</label>
+            <input type="number" id="led_pixel_count" name="led_pixel_count" value="{{ config['device']['led_pixel_count'] }}">
+
+            <button type="submit">Save</button>
+        </form>
+
+        <div id="status"></div>
+        <div id="updateStatus"></div>
+
+        <h2>Check for Updates</h2>
+        <div class="button-group">
+            <button id="checkUpdateBtn">Check for Update</button>
+            <button id="updateBtn" style="display: none;">Update Now</button>
+        </div>
+    </div>
 
     <script>
         const form = document.getElementById("configForm");
@@ -83,6 +178,13 @@
             if (result.status === "success") {
                 updateBtn.style.display = 'none';
             }
+        };
+
+        const infoDeviceId = document.getElementById("infoDeviceId");
+        const deviceIdInfo = document.getElementById("deviceIdInfo");
+
+        infoDeviceId.onclick = () => {
+            deviceIdInfo.style.display = deviceIdInfo.style.display === "none" ? "block" : "none";
         };
     </script>
 </body>

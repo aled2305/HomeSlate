@@ -3,11 +3,13 @@ import requests
 import zipfile
 import semver
 import json
+import subprocess
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
 CONFIG_FILE = "../config.json"
+EXAMPLE_CONFIG_FILE = "../example_config.json"
 GITHUB_REPO = "aled2305/HomeSlate"
 ACCESS_TOKEN = ""
 UPDATE_DIR = "update"  # This can be any folder you choose
@@ -21,38 +23,55 @@ def write_config(data):
     with open(CONFIG_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+def merge_configs():
+    if os.path.exists(EXAMPLE_CONFIG_FILE):
+        with open(EXAMPLE_CONFIG_FILE, "r") as example_f:
+            example_config = json.load(example_f)
+
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r") as config_f:
+                existing_config = json.load(config_f)
+            merged_config = {**example_config, **existing_config}
+        else:
+            merged_config = example_config
+
+        write_config(merged_config)
+
 def get_installed_version():
     try:
-        with open("version.txt", "r") as f:
-            return f.read().strip()
+        with open("../version.txt", "r") as f:
+            version = f.read().strip()
+            print(f"Installed version: {version}")  # Debug
+            return version
     except FileNotFoundError:
-        return "0.0.0"  # Default if no version file exists
+        print("version.txt not found.")  # Debug
+        return "v0.0.0"  # Default version
 
 def get_latest_version():
     url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-    headers = {"Authorization": f"token {ACCESS_TOKEN}"}
+    headers = {"Authorization": f"token {ACCESS_TOKEN}"} if ACCESS_TOKEN else {}
     response = requests.get(url, headers=headers)
     response.raise_for_status()
 
     data = response.json()
-    latest_version = data["tag_name"]  # e.g., "v0.1.1-alpha"
+    latest_version = data["tag_name"].lstrip("v")  # Remove 'v' prefix for comparison if needed
     zip_url = data["zipball_url"]
 
-    # Remove the 'v' prefix for semver compatibility if present
-    latest_version = latest_version.lstrip("v")
+    print(f"GitHub Latest Version: {latest_version}")  # Debug
     return latest_version, zip_url
 
 def is_update_available():
     installed_version = get_installed_version().lstrip("v")  # Remove 'v' for comparison
     latest_version, _ = get_latest_version()
+    print(f"Installed: {installed_version}, Latest: {latest_version}")  # Debug
 
     try:
-        # Use semver.compare to check if an update is available
+        # Use semver.compare for comparison, supporting pre-releases
         return semver.compare(installed_version, latest_version) < 0
     except ValueError as e:
         raise ValueError(f"Invalid version format: {e}")
 
-def download_and_unzip(url, download_path, extract_path):
+def download_and_replace(url, download_path, extract_path):
     # Ensure the 'update' directory exists
     os.makedirs(os.path.dirname(download_path), exist_ok=True)
 
@@ -66,14 +85,16 @@ def download_and_unzip(url, download_path, extract_path):
         with zipfile.ZipFile(download_path, 'r') as zip_ref:
             zip_ref.extractall(extract_path)
         
-        # Clean up zip file after extraction
+        # Use rsync to sync files, excluding specific folders/files
+        os.system(f"rsync -av --delete --exclude='homeslate' --exclude='config.json' {extract_path}/ ../")
+
+        # Clean up zip file and extracted folder after syncing
         os.remove(download_path)
-        
-        print("Update downloaded and extracted successfully.")
+        os.system(f"rm -rf {extract_path}")
+
+        print("Update downloaded, extracted, and replaced successfully.")
     else:
         print("Failed to download the update.")
-    
-    
 
 @app.route('/')
 def home():
@@ -118,9 +139,13 @@ def check_update():
         installed_version = get_installed_version().lstrip("v")
         latest_version, _ = get_latest_version()
 
+        if not installed_version:
+            return jsonify({"status": "error", "message": "Installed version not found."}), 500
+
         if is_update_available():
             return jsonify({"status": "update_available", "latest_version": f"v{latest_version}"})
         return jsonify({"status": "up_to_date", "installed_version": f"v{installed_version}"})
+
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -134,14 +159,21 @@ def update():
         if is_update_available():
             # Define where to download and extract the files
             download_path = os.path.join(UPDATE_DIR, "update.zip")
-            extract_path = UPDATE_DIR  # You can change this to a different directory if needed
+            extract_path = os.path.join(UPDATE_DIR, "extracted")
 
-            # Pass both download_path and extract_path to the download_and_unzip function
-            download_and_unzip(zip_url, download_path, extract_path)
+            # Download, extract, and replace files
+            download_and_replace(zip_url, download_path, extract_path)
 
-            # Optionally, you can replace the current version with the new one
-            with open("version.txt", "w") as f:
+            # Merge the example config with the current config
+            merge_configs()
+
+            # Optionally, update the version file
+            with open("../version.txt", "w") as f:
                 f.write(latest_version)
+
+            # Restart services
+            subprocess.run(["systemctl", "restart", "home_slate.service"])
+            subprocess.run(["systemctl", "restart", "home_slate_management.service"])
 
             return jsonify({"status": "success", "message": f"Update to v{latest_version} installed successfully!"})
 
@@ -150,7 +182,5 @@ def update():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
-
