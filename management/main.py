@@ -7,7 +7,7 @@ from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
-CONFIG_FILE = "../Main/config.json"
+CONFIG_FILE = "../config.json"
 GITHUB_REPO = "aled2305/HomeSlate"
 ACCESS_TOKEN = ""
 UPDATE_DIR = "update"  # This can be any folder you choose
