@@ -2,6 +2,7 @@ import os
 import requests
 import zipfile
 import semver
+import glob
 import json
 import subprocess
 from flask import Flask, render_template, request, jsonify
@@ -75,26 +76,36 @@ def download_and_replace(url, download_path, extract_path):
     # Ensure the 'update' directory exists
     os.makedirs(os.path.dirname(download_path), exist_ok=True)
 
-    # Download the file from the URL
+    print(f"Starting download from: {url}")
     response = requests.get(url)
     if response.status_code == 200:
         with open(download_path, 'wb') as f:
             f.write(response.content)
+        print(f"Downloaded update to {download_path}")
 
-        # Unzip the downloaded file
+        # Extract the zip file
         with zipfile.ZipFile(download_path, 'r') as zip_ref:
             zip_ref.extractall(extract_path)
-        
-        # Use rsync to sync files, excluding specific folders/files
-        os.system(f"rsync -av --delete --exclude='homeslate' --exclude='config.json' {extract_path}/ ../")
+        print(f"Extracted update to {extract_path}")
 
-        # Clean up zip file and extracted folder after syncing
+        # Find the extracted folder dynamically
+        extracted_folders = glob.glob(os.path.join(extract_path, "*"))
+        if not extracted_folders:
+            raise Exception("No extracted folder found.")
+        extracted_folder = extracted_folders[0]  # Assume the first folder is the extracted repo
+
+        print(f"Using extracted folder: {extracted_folder}")
+
+        # Use rsync to sync files, excluding specific folders/files
+        os.system(f"rsync -av --delete --exclude='homeslate' --exclude='config.json' {extracted_folder}/ ../")
+        print("Synced files to project directory.")
+
+        # Cleanup
         os.remove(download_path)
         os.system(f"rm -rf {extract_path}")
-
-        print("Update downloaded, extracted, and replaced successfully.")
+        print("Cleaned up temporary files.")
     else:
-        print("Failed to download the update.")
+        raise Exception(f"Failed to download update. Status code: {response.status_code}")
 
 @app.route('/')
 def home():
@@ -169,7 +180,7 @@ def update():
 
             # Optionally, update the version file
             with open("../version.txt", "w") as f:
-                f.write(latest_version)
+                f.write(f"v{latest_version}")
 
             # Restart services
             subprocess.run(["systemctl", "restart", "home_slate.service"])
