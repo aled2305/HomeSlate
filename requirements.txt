@@ -2,3 +2,4 @@ paho-mqtt
 psutil
 semver
 requests
+flask
