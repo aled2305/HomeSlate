@@ -3,3 +3,4 @@ psutil
 semver
 requests
 flask
+selenium

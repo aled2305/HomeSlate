@@ -16,7 +16,8 @@ EXAMPLE_CONFIG_FILE = "../example_config.json"
 GITHUB_REPO = "aled2305/HomeSlate"
 ACCESS_TOKEN = ""
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # Get the directory of the current script
-VENV_DIR = os.path.join(SCRIPT_DIR, "homeslate")
+PARENT_DIR = os.path.dirname(SCRIPT_DIR)  # move up one level
+VENV_DIR = os.path.join(PARENT_DIR, "homeslate")
 SERVICE_NAME = "home_slate.service"
 MANAGEMENT_SERVICE_NAME = "home_slate_management.service"
 TMP_DIR = tempfile.mkdtemp()
@@ -139,6 +140,21 @@ def run_update():
     if is_update_available():
         download_and_replace(zip_url)
         merge_configs()
+
+        # Install or upgrade dependencies inside the virtual environment
+        print("Installing/upgrading dependencies...", flush=True)
+        pip_path = os.path.join(VENV_DIR, "bin", "pip")
+        requirements_path = os.path.join(PARENT_DIR, "requirements.txt")
+        result = subprocess.run([pip_path, "install", "--upgrade", "-r", requirements_path], capture_output=True, text=True)
+
+        # Print the output of the pip install to logs
+        print(result.stdout, flush=True)
+        if result.returncode != 0:
+            print("Error installing dependencies:", result.stderr, flush=True)
+        else:
+            print("Dependencies installed/upgraded successfully.", flush=True)
+
+        # Restart the service
         print("Restarting services...", flush=True)
         subprocess.run(["sudo", "systemctl", "restart", SERVICE_NAME])
         print(f"Update to v{latest_version} installed successfully!", flush=True)
@@ -171,9 +187,15 @@ def update_config():
             "led_pixel_count": int(request.form["led_pixel_count"])
         }
 
+        browser_data = {
+            "default_url": request.form["browser_default_url"]
+        }
+    
+
         new_config = {
             "mqtt": mqtt_data,
-            "device": device_data
+            "device": device_data,
+            "browser": browser_data
         }
         write_config(new_config)
         return jsonify({"status": "success", "message": "Configuration updated successfully!"})

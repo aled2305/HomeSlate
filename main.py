@@ -3,6 +3,7 @@ import json
 from mqtt_client import MQTTClient
 from sensors import SensorManager
 from screen import ScreenManager
+from browser import BrowserManager
 
 # Load config from config.json
 def load_config():
@@ -24,6 +25,9 @@ def main():
     # Create an instance of ScreenManager
     screen_manager = ScreenManager(config, mqtt_client.client)
 
+    # Create an instance of BrowserManager
+    browser_manager = BrowserManager(config, mqtt_client.client)
+
     # Connect to the MQTT broker
     mqtt_client.connect()
 
@@ -31,8 +35,13 @@ def main():
     mqtt_client.client.on_connect = lambda client, userdata, flags, rc: (
         sensor_manager.setup_discovery(),
         screen_manager.setup_discovery(),  # Announce screen control to the broker
-        screen_manager.setup_brightness_control()  # Subscribe to brightness control commands
+        screen_manager.setup_brightness_control(),  # Subscribe to brightness control commands
+        browser_manager.setup_discovery(),  # Announce browser controls to the broker
+        browser_manager.setup_browser_control()  # Subscribe to browser control commands
     )
+
+    # Launch the browser
+    browser_manager.launch_browser()
 
     # Main loop to update and publish sensor states every 10 seconds
     try:
@@ -52,6 +61,9 @@ def main():
     except KeyboardInterrupt:
         print("Exiting...")
     finally:
+        # Close the browser before exiting
+        browser_manager.close_browser()
+
         # Manually publish the "offline" message for IP address sensor
         ip_address_topic = f"sensor/{config['device']['name'].lower().replace(' ', '_')}/ip_address/state"
         mqtt_client.publish(ip_address_topic, "offline")

@@ -12,5 +12,8 @@
         "display_name": "DSI-2",
         "led_control_pin": 18,
         "led_pixel_count": 13
+    },
+    "browser": {
+        "default_url": "https://www.example.com"
     }
 }
