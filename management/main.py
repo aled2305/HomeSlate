@@ -197,6 +197,7 @@ def update():
 
             # Restart only the main service since management performs updates
             subprocess.run(["systemctl", "restart", SERVICE_NAME])
+            subprocess.run(["systemctl", "restart", MANAGEMENT_SERVICE_NAME])
 
             return jsonify({"status": "success", "message": f"Update to v{latest_version} installed successfully!"})
 
