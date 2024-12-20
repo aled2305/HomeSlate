@@ -141,6 +141,9 @@
             <button id="checkUpdateBtn">Check for Update</button>
             <button id="updateBtn" style="display: none;">Update Now</button>
         </div>
+        <!-- Add a container for live logs -->
+        <h3>Update Logs</h3>
+        <pre id="logs" style="height: 300px; overflow-y: scroll; background: #f1f1f1;"></pre>
     </div>
 
     <script>
@@ -158,6 +161,7 @@
 
         const checkUpdateBtn = document.getElementById("checkUpdateBtn");
         const updateBtn = document.getElementById("updateBtn");
+        const logsElement = document.getElementById("logs");
 
         checkUpdateBtn.onclick = async () => {
             const response = await fetch("/check-update");
@@ -165,26 +169,34 @@
             if (result.status === "update_available") {
                 document.getElementById("updateStatus").innerText = `Update available! Latest version: ${result.latest_version}`;
                 updateBtn.style.display = 'inline-block';
-            } else {
+            } else if (result.status === "up_to_date") {
                 document.getElementById("updateStatus").innerText = `You're up to date! Installed version: ${result.installed_version}`;
+                updateBtn.style.display = 'none';
+            } else {
+                document.getElementById("updateStatus").innerText = `Error: ${result.message}`;
                 updateBtn.style.display = 'none';
             }
         };
 
         updateBtn.onclick = async () => {
+            logsElement.textContent = ""; // Clear any previous logs
             const response = await fetch("/update", { method: "POST" });
             const result = await response.json();
             document.getElementById("updateStatus").innerText = result.message;
+
             if (result.status === "success") {
-                updateBtn.style.display = 'none';
+                // Listen to SSE events from /update-logs
+                const evtSource = new EventSource("/update-logs");
+                evtSource.onmessage = function(event) {
+                    logsElement.textContent += event.data + "\n";
+                    logsElement.scrollTop = logsElement.scrollHeight;
+                };
+
+                evtSource.onerror = function() {
+                    // Once update is done or error occurs, close the source
+                    evtSource.close();
+                };
             }
-        };
-
-        const infoDeviceId = document.getElementById("infoDeviceId");
-        const deviceIdInfo = document.getElementById("deviceIdInfo");
-
-        infoDeviceId.onclick = () => {
-            deviceIdInfo.style.display = deviceIdInfo.style.display === "none" ? "block" : "none";
         };
     </script>
 </body>

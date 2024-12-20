@@ -5,7 +5,9 @@ import semver
 import json
 import subprocess
 import tempfile
-from flask import Flask, render_template, request, jsonify
+import sys
+import threading
+from flask import Flask, render_template, request, jsonify, Response
 
 app = Flask(__name__)
 
@@ -17,9 +19,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # Get the directory of 
 VENV_DIR = os.path.join(SCRIPT_DIR, "homeslate")
 SERVICE_NAME = "home_slate.service"
 MANAGEMENT_SERVICE_NAME = "home_slate_management.service"
-# TMP_DIR = os.path.join(SCRIPT_DIR, "temp_update")
 TMP_DIR = tempfile.mkdtemp()
 os.makedirs(TMP_DIR, exist_ok=True)  # Ensure the temp directory exists
+
+update_in_progress = False
+update_thread = None
 
 def read_config():
     with open(CONFIG_FILE, "r") as f:
@@ -37,6 +41,7 @@ def merge_configs():
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, "r") as config_f:
                 existing_config = json.load(config_f)
+            # Merge: existing_config overrides example_config
             merged_config = {**example_config, **existing_config}
         else:
             merged_config = example_config
@@ -47,13 +52,14 @@ def get_installed_version():
     try:
         with open("../version.txt", "r") as f:
             version = f.read().strip()
-            print(f"Installed version: {version}")  # Debug
+            print(f"Installed version: {version}", flush=True)  # Debug
             return version
     except FileNotFoundError:
-        print("version.txt not found.")  # Debug
+        print("version.txt not found.", flush=True)  # Debug
         return "v0.0.0"  # Default version
 
 def get_latest_version():
+    print("Fetching latest version from GitHub...", flush=True)
     url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
     headers = {"Authorization": f"token {ACCESS_TOKEN}"} if ACCESS_TOKEN else {}
     response = requests.get(url, headers=headers)
@@ -63,70 +69,83 @@ def get_latest_version():
     latest_version = data["tag_name"].lstrip("v")  # Remove 'v' prefix for comparison if needed
     zip_url = data["zipball_url"]
 
-    print(f"GitHub Latest Version: {latest_version}")  # Debug
+    print(f"GitHub Latest Version: {latest_version}", flush=True)  # Debug
     return latest_version, zip_url
 
 def is_update_available():
     installed_version = get_installed_version().lstrip("v")  # Remove 'v' for comparison
     latest_version, _ = get_latest_version()
-    print(f"Installed: {installed_version}, Latest: {latest_version}")  # Debug
+    print(f"Installed: {installed_version}, Latest: {latest_version}", flush=True)  # Debug
 
     try:
-        # Use semver.compare for comparison, supporting pre-releases
         return semver.compare(installed_version, latest_version) < 0
     except ValueError as e:
         raise ValueError(f"Invalid version format: {e}")
 
 def download_and_replace(url):
-    print(f"Starting download from: {url}")
+    print(f"Starting download from: {url}", flush=True)
     zip_path = os.path.join(TMP_DIR, "update.zip")
     try:
-        # Download the update
         response = requests.get(url, stream=True)
         if response.status_code == 200:
+            print("Downloading update...", flush=True)
             with open(zip_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            print(f"Downloaded update to {zip_path}")
+            print(f"Downloaded update to {zip_path}", flush=True)
 
-            # Extract the zip file
+            print("Extracting update...", flush=True)
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(TMP_DIR)
-            print(f"Extracted update to {TMP_DIR}")
+            print(f"Extracted update to {TMP_DIR}", flush=True)
 
-            # Find the extracted folder dynamically
             extracted_folders = [f for f in os.listdir(TMP_DIR) if os.path.isdir(os.path.join(TMP_DIR, f))]
             if not extracted_folders:
+                print("No extracted folder found.", flush=True)
                 raise Exception("No extracted folder found.")
             extracted_folder = os.path.join(TMP_DIR, extracted_folders[0])
-            print(f"Using extracted folder: {extracted_folder}")
+            print(f"Using extracted folder: {extracted_folder}", flush=True)
 
-            # Use rsync to sync files, preserving permissions and avoiding ownership changes
             rsync_command = (
                 f"rsync -av --delete --exclude='homeslate' --exclude='config.json' --exclude='version.txt' "
                 f"{extracted_folder}/ {os.path.dirname(SCRIPT_DIR)}/"
             )
-            print(f"Executing rsync: {rsync_command}")
+            print(f"Executing rsync: {rsync_command}", flush=True)
             result = os.system(rsync_command)
             if result != 0:
+                print("Rsync operation failed.", flush=True)
                 raise Exception("Rsync operation failed.")
 
-            print("Synced files to script directory.")
+            print("Synced files to script directory.", flush=True)
 
-            # Update version.txt after successful sync
             latest_version, _ = get_latest_version()
             with open(os.path.join(SCRIPT_DIR, "../version.txt"), "w") as f:
                 f.write(f"v{latest_version}")
+            print(f"Updated version.txt to v{latest_version}", flush=True)
 
         else:
+            print(f"Failed to download update. Status code: {response.status_code}", flush=True)
             raise Exception(f"Failed to download update. Status code: {response.status_code}")
     finally:
-        # Cleanup temporary files
         if os.path.exists(zip_path):
             os.remove(zip_path)
         if os.path.exists(TMP_DIR):
             os.system(f"rm -rf {TMP_DIR}")
-        print("Cleaned up temporary files.")
+        print("Cleaned up temporary files.", flush=True)
+
+def run_update():
+    print("run_update started...", flush=True)
+    latest_version, zip_url = get_latest_version()
+    if is_update_available():
+        download_and_replace(zip_url)
+        merge_configs()
+        print("Restarting services...", flush=True)
+        subprocess.run(["sudo", "systemctl", "restart", SERVICE_NAME])
+        print(f"Update to v{latest_version} installed successfully!", flush=True)
+        print(f"Restarting management service. Please refresh this page in approximately 10 seconds. Should the service not restart you can view any logs by running 'journalctl -u home_slate_management.service -f' via terminal.", flush=True)
+        subprocess.run(["sudo", "systemctl", "restart", MANAGEMENT_SERVICE_NAME])
+    else:
+        print("No update available.", flush=True)
 
 @app.route('/')
 def home():
@@ -136,7 +155,6 @@ def home():
 @app.route('/update-config', methods=['POST'])
 def update_config():
     try:
-        # Get MQTT data from the form
         mqtt_data = {
             "broker": request.form["mqtt_broker"],
             "port": int(request.form["mqtt_port"]),
@@ -145,7 +163,6 @@ def update_config():
             "base_topic": request.form["mqtt_base_topic"]
         }
 
-        # Get Device data from the form
         device_data = {
             "id": request.form["device_id"],
             "name": request.form["device_name"],
@@ -154,13 +171,11 @@ def update_config():
             "led_pixel_count": int(request.form["led_pixel_count"])
         }
 
-        # Combine both sections and update the config file
         new_config = {
             "mqtt": mqtt_data,
             "device": device_data
         }
         write_config(new_config)
-
         return jsonify({"status": "success", "message": "Configuration updated successfully!"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -177,34 +192,53 @@ def check_update():
         if is_update_available():
             return jsonify({"status": "update_available", "latest_version": f"v{latest_version}"})
         return jsonify({"status": "up_to_date", "installed_version": f"v{installed_version}"})
-
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/update', methods=['POST'])
 def update():
-    try:
-        # Fetch the latest version and the corresponding zip URL
-        latest_version, zip_url = get_latest_version()
+    global update_in_progress, update_thread
+    global update_in_progress
+    global update_thread
 
-        # Check if an update is available
-        if is_update_available():
-            # Download and replace files
-            download_and_replace(zip_url)
+    if update_in_progress:
+        return jsonify({"status": "error", "message": "Update already in progress."}), 400
 
-            # Merge the example config with the current config
-            merge_configs()
+    print("Received update request, starting update thread...", flush=True)
+    update_in_progress = True
+    update_thread = threading.Thread(target=run_update, daemon=True)
+    update_thread.start()
 
-            # Restart only the main service since management performs updates
-            subprocess.run(["sudo", "systemctl", "restart", SERVICE_NAME])
-            subprocess.run(["sudo", "systemctl", "restart", MANAGEMENT_SERVICE_NAME])
+    return jsonify({"status": "success", "message": "Update started. Please check logs."})
 
-            return jsonify({"status": "success", "message": f"Update to v{latest_version} installed successfully!"})
+@app.route('/update-logs')
+def update_logs():
+    global update_in_progress, update_thread
+    global update_in_progress
+    global update_thread
 
-        return jsonify({"status": "no_update", "message": "No update available."})
+    def generate():
+        print("SSE generator started...", flush=True)
+        r, w = os.pipe()
+        orig_stdout = os.dup(sys.stdout.fileno())
+        os.dup2(w, sys.stdout.fileno())
+        os.close(w)
 
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        try:
+            with os.fdopen(r) as pipe:
+                while True:
+                    line = pipe.readline()
+                    if not line and (not update_in_progress or (update_thread and not update_thread.is_alive())):
+                        break
+                    if line:
+                        yield f"data: {line.strip()}\n\n"
+        finally:
+            os.dup2(orig_stdout, sys.stdout.fileno())
+            os.close(orig_stdout)
+            print("SSE generator finishing, marking update as done...", flush=True)
+            update_in_progress = False
+
+    return Response(generate(), mimetype='text/event-stream')
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
