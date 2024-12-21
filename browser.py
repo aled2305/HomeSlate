@@ -37,6 +37,8 @@ class BrowserManager:
             self.driver.get(self.config["browser"]["default_url"])
             print("Browser launched and navigated to default URL.")
 
+            self.full_screen()
+
         except Exception as e:
             print(f"Error launching browser: {e}")
 
