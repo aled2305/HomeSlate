@@ -4,3 +4,4 @@ semver
 requests
 flask
 selenium
+rpi_ws281x

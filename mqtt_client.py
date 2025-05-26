@@ -1,4 +1,5 @@
 import json
+import time
 import paho.mqtt.client as mqtt
 
 class MQTTClient:
@@ -18,22 +19,28 @@ class MQTTClient:
         self.device_id = device_config["id"]
 
         self.client = mqtt.Client()
-
-        # Set username and password
         self.client.username_pw_set(self.username, self.password)
 
-        # Set Last Will and Testament (LWT) for the device's IP address sensor
+        # Set LWT
         lwt_topic = f"{self.base_topic}/sensor/{self.device_name.lower().replace(' ', '_')}/ip_address/state"
         self.client.will_set(lwt_topic, payload="offline", qos=1, retain=True)
         print(f"Set LWT message for {lwt_topic}")
 
-        # Set the on_disconnect callback
         self.client.on_disconnect = self.on_disconnect
+        self.on_connect_callback = None  # Set by external code
+
+    def set_on_connect_callback(self, callback):
+        self.on_connect_callback = callback
+        self.client.on_connect = callback
 
     def connect(self):
-        self.client.connect(self.broker, self.port)
-        self.client.loop_start()
-        print(f"Connected to MQTT broker at {self.broker}:{self.port}")
+        try:
+            self.client.connect(self.broker, self.port)
+            self.client.loop_start()
+            print(f"Connected to MQTT broker at {self.broker}:{self.port}")
+        except Exception as e:
+            print(f"Initial connection failed: {e}")
+            self.reconnect()
 
     def disconnect(self):
         self.client.loop_stop()
@@ -46,6 +53,17 @@ class MQTTClient:
 
     def on_disconnect(self, client, userdata, rc):
         if rc != 0:
-            print(f"Unexpected disconnection. Reason code: {rc}")
+            print(f"Unexpected disconnection. Reason code: {rc}. Attempting to reconnect...")
+            self.reconnect()
         else:
             print("Disconnected from MQTT broker gracefully.")
+
+    def reconnect(self):
+        while True:
+            try:
+                self.client.reconnect()
+                print("Reconnected to MQTT broker.")
+                break
+            except Exception as e:
+                print(f"Reconnection failed: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
