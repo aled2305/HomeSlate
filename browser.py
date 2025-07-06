@@ -1,9 +1,7 @@
+
 import json
 import subprocess
 import time
-from selenium import webdriver
-from selenium.webdriver.firefox.service import Service
-from selenium.webdriver.firefox.options import Options
 
 class BrowserManager:
     def __init__(self, config, mqtt_client):
@@ -12,53 +10,46 @@ class BrowserManager:
         self.device_name = self.config['device']['name']
         self.device_id = self.config['device']['id']
 
-        # Browser WebDriver instance
-        self.driver = None
+        # Chromium process handle
+        self.browser_process = None
 
         # Define control items (browser actions)
         self.control_items = [
+            {"name": "Launch Browser", "topic": f"button/{self.device_name.lower().replace(' ', '_')}/launch", "action": self.launch_browser},
             {"name": "Refresh Browser", "topic": f"button/{self.device_name.lower().replace(' ', '_')}/refresh", "action": self.refresh_browser},
-            {"name": "Full Screen", "topic": f"button/{self.device_name.lower().replace(' ', '_')}/full_screen", "action": self.full_screen},
-            {"name": "Exit Full Screen", "topic": f"button/{self.device_name.lower().replace(' ', '_')}/exit_full_screen", "action": self.exit_full_screen}
+            {"name": "Exit Browser", "topic": f"button/{self.device_name.lower().replace(' ', '_')}/exit", "action": self.close_browser}
         ]
 
     def launch_browser(self):
-        """Launch the browser."""
+        """Launch Chromium in kiosk mode."""
         try:
-            firefox_options = Options()
-            firefox_options.add_argument("--width=1920")
-            firefox_options.add_argument("--height=1080")
-
-            geckodriver_path = "/usr/local/bin/geckodriver"  # Update if necessary
-            service = Service(geckodriver_path)
-
-            # Initialize WebDriver
-            self.driver = webdriver.Firefox(service=service, options=firefox_options)
-            self.driver.get(self.config["browser"]["default_url"])
-            print("Browser launched and navigated to default URL.")
-
-            self.full_screen()
-
+            if self.browser_process:
+                self.browser_process.terminate()
+                time.sleep(1)
+            url = self.config["browser"]["default_url"]
+            self.browser_process = subprocess.Popen([
+                "chromium-browser",
+                "--kiosk",
+                "--disable-infobars",
+                "--noerrdialogs",
+                "--no-sandbox",  # Required if running as root
+                url
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"Chromium launched at {url}")
         except Exception as e:
-            print(f"Error launching browser: {e}")
+            print(f"Error launching Chromium: {e}")
 
     def refresh_browser(self):
-        """Refresh the browser."""
-        if self.driver:
-            print("Refreshing browser...")
-            self.driver.refresh()
+        """Refresh by restarting Chromium at default URL."""
+        print("Refreshing Chromium browser...")
+        self.launch_browser()
 
-    def full_screen(self):
-        """Switch browser to full-screen mode."""
-        if self.driver:
-            print("Switching to full-screen mode...")
-            self.driver.fullscreen_window()
-
-    def exit_full_screen(self):
-        """Exit full-screen mode."""
-        if self.driver:
-            print("Exiting full-screen mode...")
-            self.driver.set_window_size(1920, 1080)  # Reset to original size
+    def close_browser(self):
+        """Close Chromium browser."""
+        if self.browser_process:
+            print("Closing Chromium...")
+            self.browser_process.terminate()
+            self.browser_process = None
 
     def setup_discovery(self):
         """Announce browser control elements to MQTT."""
@@ -75,7 +66,6 @@ class BrowserManager:
                     "manufacturer": "Aled Evans"
                 }
             }
-            # Publish discovery message
             self.mqtt_client.publish(discovery_topic, json.dumps(discovery_payload))
             print(f"Published discovery for {control_item['name']}")
 
@@ -84,11 +74,7 @@ class BrowserManager:
         for control_item in self.control_items:
             topic = f"{self.config['mqtt']['base_topic']}/{control_item['topic']}/set"
             self.mqtt_client.subscribe(topic)
-            self.mqtt_client.message_callback_add(topic, lambda client, userdata, msg, action=control_item["action"]: action())
-
-    def close_browser(self):
-        """Close the browser."""
-        if self.driver:
-            print("Closing browser...")
-            self.driver.quit()
-            self.driver = None
+            self.mqtt_client.message_callback_add(
+                topic,
+                lambda client, userdata, msg, action=control_item["action"]: action()
+            )
